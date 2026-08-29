@@ -102,6 +102,8 @@ install -d -m 755 /etc/ssh/sshd_config.d
 cat >/etc/ssh/sshd_config.d/99-grandoptical.conf <<EOF
 Port $SSH_PORT
 EOF
+# Some minimal Ubuntu images ship sshd without its runtime directory yet.
+install -d -m 0755 /run/sshd
 sshd -t || die "sshd configuration test failed."
 
 if [[ "$UFW_ENABLE" == "on" ]]; then
@@ -133,20 +135,20 @@ else
 fi
 
 # sshd may still need to be reloaded after socket setup.
-systemctl reload ssh 2>/dev/null || true
-
-for _ in {1..20}; do
-  if ss -lnt 2>/dev/null | grep -qE ":${SSH_PORT}[[:space:]]"; then
-    ok "SSH is listening on port $SSH_PORT."
-    if [[ "$UFW_ENABLE" == "on" && "$SSH_PORT" != "22" ]]; then
-      ufw delete allow 22/tcp >/dev/null 2>&1 || true
-      ok "Temporary SSH port 22 rule removed."
-    fi
-    break
+if ! ss -lntH | awk '{print $4}' | grep -Eq '(^|:)'"$SSH_PORT"'$'; then
+  systemctl reload ssh || true
+fi
+if ss -lntH | awk '{print $4}' | grep -Eq '(^|:)'"$SSH_PORT"'$'; then
+  ok "SSH is listening on port $SSH_PORT."
+  if [[ "$UFW_ENABLE" == "on" && "$SSH_PORT" != "22" ]]; then
+    ufw delete allow 22/tcp >/dev/null 2>&1 || true
+    ok "Temporary SSH 22/tcp rule removed."
   fi
-  sleep 1
-done
-ss -lnt 2>/dev/null | grep -qE ":${SSH_PORT}[[:space:]]" || die "SSH did not start listening on $SSH_PORT; leaving port 22 open would be safer than continuing."
+else
+  die "SSH is not listening on port $SSH_PORT; leaving port 22 open for recovery."
+fi
+
+ok "SSH configured on port $SSH_PORT"
 
 XUI_INSTALL_URL="https://raw.githubusercontent.com/MHSanaei/3x-ui/${XUI_VERSION}/install.sh"
 log "Installing 3x-UI ${XUI_VERSION}..."
@@ -168,6 +170,8 @@ WEB_BASE_PATH="$($XUI_BIN setting -show true | awk -F': ' '/^webBasePath:/{print
 [[ -n "$WEB_BASE_PATH" ]] || die "Could not read 3x-UI webBasePath."
 PANEL_PATH="/${WEB_BASE_PATH}/"
 
+# Certbot uses standalone HTTP-01 here. Renewal hooks stop/start Nginx so port 80
+# is available whenever a renewal is actually attempted.
 log "Issuing Let's Encrypt certificate for $DOMAIN..."
 systemctl stop nginx
 if ! certbot certonly --standalone --non-interactive --agree-tos \
@@ -198,8 +202,8 @@ chmod 755 /etc/letsencrypt/renewal-hooks/pre/10-grandoptical-stop-nginx \
   /etc/letsencrypt/renewal-hooks/deploy/10-grandoptical-reload-nginx
 
 # Subscription settings used by the reference installation.
-# 3x-UI 3.7.0 does not guarantee a UNIQUE constraint on settings.key, so do not
-# use ON CONFLICT(key). Delete the managed keys first and insert them.
+# The 3x-UI 3.7.0 settings table does not guarantee a UNIQUE constraint on key,
+# so do not use ON CONFLICT(key). Delete the six managed keys first and insert them.
 sqlite3 "$XUI_DB" <<SQL
 DELETE FROM settings
 WHERE key IN ('subEnable','subListen','subPort','subPath','subDomain','subURI');
