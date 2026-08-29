@@ -121,12 +121,14 @@ fi
 
 if systemctl list-unit-files ssh.socket >/dev/null 2>&1 && \
    (systemctl is-active --quiet ssh.socket || systemctl is-enabled --quiet ssh.socket); then
-  log "Detected systemd ssh.socket; moving its listener to $SSH_PORT."
+  log "Detected systemd ssh.socket; moving its listeners to $SSH_PORT."
   install -d -m 755 /etc/systemd/system/ssh.socket.d
   cat >/etc/systemd/system/ssh.socket.d/99-grandoptical.conf <<EOF
 [Socket]
 ListenStream=
-ListenStream=$SSH_PORT
+ListenStream=0.0.0.0:$SSH_PORT
+ListenStream=[::]:$SSH_PORT
+BindIPv6Only=ipv6-only
 EOF
   systemctl daemon-reload
   systemctl restart ssh.socket
@@ -138,14 +140,18 @@ fi
 if ! ss -lntH | awk '{print $4}' | grep -Eq '(^|:)'"$SSH_PORT"'$'; then
   systemctl reload ssh || true
 fi
-if ss -lntH | awk '{print $4}' | grep -Eq '(^|:)'"$SSH_PORT"'$'; then
-  ok "SSH is listening on port $SSH_PORT."
+# Require IPv4 explicitly because the management client normally connects via IPv4.
+if ss -lntH | awk -v p="$SSH_PORT" '$4 == "0.0.0.0:" p { found=1 } END { exit !found }'; then
+  ok "SSH is listening on IPv4 port $SSH_PORT."
+  if ss -lntH | awk -v p="$SSH_PORT" '$4 == "[::]:" p { found=1 } END { exit !found }'; then
+    ok "SSH is also listening on IPv6 port $SSH_PORT."
+  fi
   if [[ "$UFW_ENABLE" == "on" && "$SSH_PORT" != "22" ]]; then
     ufw delete allow 22/tcp >/dev/null 2>&1 || true
     ok "Temporary SSH 22/tcp rule removed."
   fi
 else
-  die "SSH is not listening on port $SSH_PORT; leaving port 22 open for recovery."
+  die "SSH is not listening on IPv4 port $SSH_PORT; leaving port 22 open for recovery."
 fi
 
 ok "SSH configured on port $SSH_PORT"
