@@ -169,15 +169,18 @@ chmod 755 /etc/letsencrypt/renewal-hooks/pre/10-grandoptical-stop-nginx \
   /etc/letsencrypt/renewal-hooks/deploy/10-grandoptical-reload-nginx
 
 # Subscription settings used by the reference installation.
+# The 3x-UI 3.7.0 settings table does not guarantee a UNIQUE constraint on key,
+# so do not use ON CONFLICT(key). Delete the six managed keys first and insert them.
 sqlite3 "$XUI_DB" <<SQL
+DELETE FROM settings
+WHERE key IN ('subEnable','subListen','subPort','subPath','subDomain','subURI');
 INSERT INTO settings(key,value) VALUES
  ('subEnable','true'),
  ('subListen',''),
  ('subPort','2096'),
  ('subPath','/sub/'),
  ('subDomain','$DOMAIN'),
- ('subURI','https://$DOMAIN/2096/sub/')
-ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+ ('subURI','https://$DOMAIN/2096/sub/');
 SQL
 $XUI_BIN restart >/dev/null 2>&1
 sleep 2
@@ -310,7 +313,7 @@ systemctl restart cron
 
 a="$($XUI_BIN -v 2>/dev/null || true)"
 echo
-ok "Installation complete."
+echo "Installation complete."
 echo "Domain:        $DOMAIN"
 echo "3x-UI version: ${a}"
 echo "Panel port:    $PANEL_PORT"
