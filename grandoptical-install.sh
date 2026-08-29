@@ -90,8 +90,9 @@ EOF
 sysctl --system >/dev/null
 ok "BBR/qdisc/swappiness configured."
 
-# On a fresh server, the stock OpenSSH configuration normally has no explicit
-# Port directive. Comment any existing explicit ports before adding our port.
+# SSH migration is deliberately staged so an active installer session is not
+# locked out. Ubuntu 24.04 commonly uses ssh.socket for the listening socket.
+# Keep port 22 allowed until 5055 is confirmed listening; only then remove 22.
 sed -ri 's/^([[:space:]]*Port[[:space:]]+[0-9]+.*)$/# \1/' /etc/ssh/sshd_config 2>/dev/null || true
 for f in /etc/ssh/sshd_config.d/*.conf; do
   [[ -f "$f" ]] || continue
@@ -108,14 +109,44 @@ if [[ "$UFW_ENABLE" == "on" ]]; then
   ufw default deny incoming
   ufw default allow outgoing
   ufw allow "${SSH_PORT}/tcp"
+  # Keep the current/default SSH port open during the migration window.
+  if [[ "$SSH_PORT" != "22" ]]; then ufw allow 22/tcp; fi
   ufw allow 80/tcp
   ufw allow 443/tcp
   ufw --force enable >/dev/null
-  ok "UFW prepared for SSH $SSH_PORT and web ports."
+  ok "UFW prepared for SSH $SSH_PORT (+ temporary 22/tcp during migration) and web ports."
 fi
 
-systemctl reload ssh
-ok "SSH configured on port $SSH_PORT"
+if systemctl list-unit-files ssh.socket >/dev/null 2>&1 && \
+   (systemctl is-active --quiet ssh.socket || systemctl is-enabled --quiet ssh.socket); then
+  log "Detected systemd ssh.socket; moving its listener to $SSH_PORT."
+  install -d -m 755 /etc/systemd/system/ssh.socket.d
+  cat >/etc/systemd/system/ssh.socket.d/99-grandoptical.conf <<EOF
+[Socket]
+ListenStream=
+ListenStream=$SSH_PORT
+EOF
+  systemctl daemon-reload
+  systemctl restart ssh.socket
+else
+  systemctl reload ssh || systemctl restart ssh
+fi
+
+# sshd may still need to be reloaded after socket setup.
+systemctl reload ssh 2>/dev/null || true
+
+for _ in {1..20}; do
+  if ss -lnt 2>/dev/null | grep -qE ":${SSH_PORT}[[:space:]]"; then
+    ok "SSH is listening on port $SSH_PORT."
+    if [[ "$UFW_ENABLE" == "on" && "$SSH_PORT" != "22" ]]; then
+      ufw delete allow 22/tcp >/dev/null 2>&1 || true
+      ok "Temporary SSH port 22 rule removed."
+    fi
+    break
+  fi
+  sleep 1
+done
+ss -lnt 2>/dev/null | grep -qE ":${SSH_PORT}[[:space:]]" || die "SSH did not start listening on $SSH_PORT; leaving port 22 open would be safer than continuing."
 
 XUI_INSTALL_URL="https://raw.githubusercontent.com/MHSanaei/3x-ui/${XUI_VERSION}/install.sh"
 log "Installing 3x-UI ${XUI_VERSION}..."
@@ -137,8 +168,6 @@ WEB_BASE_PATH="$($XUI_BIN setting -show true | awk -F': ' '/^webBasePath:/{print
 [[ -n "$WEB_BASE_PATH" ]] || die "Could not read 3x-UI webBasePath."
 PANEL_PATH="/${WEB_BASE_PATH}/"
 
-# Certbot uses standalone HTTP-01 here. Renewal hooks stop/start Nginx so port 80
-# is available whenever a renewal is actually attempted.
 log "Issuing Let's Encrypt certificate for $DOMAIN..."
 systemctl stop nginx
 if ! certbot certonly --standalone --non-interactive --agree-tos \
@@ -169,8 +198,8 @@ chmod 755 /etc/letsencrypt/renewal-hooks/pre/10-grandoptical-stop-nginx \
   /etc/letsencrypt/renewal-hooks/deploy/10-grandoptical-reload-nginx
 
 # Subscription settings used by the reference installation.
-# The 3x-UI 3.7.0 settings table does not guarantee a UNIQUE constraint on key,
-# so do not use ON CONFLICT(key). Delete the six managed keys first and insert them.
+# 3x-UI 3.7.0 does not guarantee a UNIQUE constraint on settings.key, so do not
+# use ON CONFLICT(key). Delete the managed keys first and insert them.
 sqlite3 "$XUI_DB" <<SQL
 DELETE FROM settings
 WHERE key IN ('subEnable','subListen','subPort','subPath','subDomain','subURI');
