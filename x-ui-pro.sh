@@ -198,6 +198,8 @@ server {
 
     # Xray protocol paths. Clients connect to :443; Xray listens locally on
     # the inbound port embedded in the URL path (for example /59535/ws).
+    # Deliberately do NOT forward X-Forwarded-For here: Xray would treat it as
+    # an untrusted proxy header and emit repeated warnings. X-Real-IP is kept.
     location ~ ^/(?<fwdport>[0-9]+)/(?<fwdpath>.*)$ {
         client_max_body_size 0;
         client_body_timeout 1d;
