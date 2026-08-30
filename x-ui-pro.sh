@@ -172,8 +172,19 @@ server {
         proxy_pass http://127.0.0.1:$PANEL_PORT;
     }
 
-    # Subscription API. The 3x-UI subscription server is HTTP on localhost;
-    # TLS is terminated by Nginx on :443.
+    # Subscription web UI/assets and API. The subscription service is HTTP on localhost;
+    # TLS is terminated by Nginx on :443. Both direct public forms are supported.
+    location /sub/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 1d;
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:2096/sub/;
+    }
+
     location ~ ^/2096/sub/(?<subpath>.*)$ {
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
@@ -187,8 +198,6 @@ server {
 
     # Xray protocol paths. Clients connect to :443; Xray listens locally on
     # the inbound port embedded in the URL path (for example /59535/ws).
-    # No X-Forwarded-For header is injected here to avoid the Xray warning
-    # about an untrusted forwarded address.
     location ~ ^/(?<fwdport>[0-9]+)/(?<fwdpath>.*)$ {
         client_max_body_size 0;
         client_body_timeout 1d;
@@ -204,6 +213,10 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_redirect off;
+        if (\$content_type ~* "^application/grpc") {
+            grpc_pass grpc://127.0.0.1:\$fwdport;
+            break;
+        }
         proxy_pass http://127.0.0.1:\$fwdport\$is_args\$args;
     }
 
@@ -219,10 +232,8 @@ x-ui start >/dev/null 2>&1 || systemctl restart x-ui
 systemctl enable x-ui >/dev/null 2>&1 || true
 sleep 2
 
-# Renewal: the certbot nginx plugin reloads Nginx after renewal.
-if ! systemctl list-timers --all | grep -q 'certbot.timer'; then
-  systemctl enable --now certbot.timer >/dev/null 2>&1 || true
-fi
+# Renewal: the certbot timer handles future renewals.
+systemctl enable --now certbot.timer >/dev/null 2>&1 || true
 
 # Lightweight diagnostics. Do not alter SSH or firewall configuration here.
 x-ui -v || true
