@@ -94,13 +94,13 @@ ls -lh /root/x-ui-pro.sh
 ### 3. Run the installer
 
 ```bash
-bash /root/x-ui-pro.sh -subdomain web.example.com
+bash /root/x-ui-pro.sh -subdomain example.com
 ```
 
 Replace:
 
 ```text
-web.example.com
+example.com
 ```
 
 with your own domain.
@@ -108,7 +108,7 @@ with your own domain.
 For example:
 
 ```bash
-bash /root/x-ui-pro.sh -subdomain blog.example.com
+bash /root/x-ui-pro.sh -subdomain your-domain.example
 ```
 
 ---
@@ -118,7 +118,7 @@ bash /root/x-ui-pro.sh -subdomain blog.example.com
 The installer can also be downloaded and executed directly:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/aghajani82/x-ui-pro/master/x-ui-pro.sh) -subdomain blog.example.com
+bash <(curl -fsSL https://raw.githubusercontent.com/aghajani82/x-ui-pro/master/x-ui-pro.sh) -subdomain example.com
 ```
 
 For production systems, downloading the script first is recommended because it leaves a local copy that can be inspected or reused for troubleshooting.
@@ -144,7 +144,7 @@ Your domain must already point to the server.
 Example:
 
 ```text
-blog.example.com → SERVER_IP
+example.com → SERVER_IP
 ```
 
 ### Port 80
@@ -246,8 +246,8 @@ privkey.pem
 Example:
 
 ```text
-/etc/letsencrypt/live/blog.example.com/fullchain.pem
-/etc/letsencrypt/live/blog.example.com/privkey.pem
+/etc/letsencrypt/live/example.com/fullchain.pem
+/etc/letsencrypt/live/example.com/privkey.pem
 ```
 
 The installer uses the Nginx webroot method for ACME validation.
@@ -313,7 +313,7 @@ The installer prints the final panel URL when installation completes.
 Example:
 
 ```text
-Panel:         https://blog.example.com/<panel-path>
+Panel:         https://example.com/<panel-path>
 ```
 
 ---
@@ -430,7 +430,7 @@ The primary installation option is:
 Example:
 
 ```bash
-bash /root/x-ui-pro.sh -subdomain blog.example.com
+bash /root/x-ui-pro.sh -subdomain example.com
 ```
 
 The following compatibility options are also accepted:
@@ -564,9 +564,9 @@ A successful installation ends with output similar to:
 ```text
 Installation completed.
 
-Domain:        blog.example.com
-Panel:         https://blog.example.com/<panel-path>
-Subscription:  https://blog.example.com/2096/sub/
+Domain:        example.com
+Panel:         https://example.com/<panel-path>
+Subscription:  https://example.com/2096/sub/
 Panel port:    <local-port> (localhost via Nginx)
 Sub port:      2096 (localhost)
 Xray:          managed by 3x-UI
