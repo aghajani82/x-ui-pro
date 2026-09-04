@@ -94,13 +94,13 @@ ls -lh /root/x-ui-pro.sh
 ### 3. Run the installer
 
 ```bash
-bash /root/x-ui-pro.sh -subdomain blog.kolbe1.ir
+bash /root/x-ui-pro.sh -subdomain web.example.com
 ```
 
 Replace:
 
 ```text
-blog.kolbe1.ir
+web.example.com
 ```
 
 with your own domain.
